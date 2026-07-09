@@ -63,11 +63,22 @@ restores their previous state. It is meant as an ambient "come look at the
 screen" signal — e.g. when Claude Code is waiting for you to approve a tool
 use. The toolbar's **Test Alert** button previews the same thing.
 
-### Wire it to Claude Code
+### Turn it on from Settings (recommended)
 
-Claude Code fires a `Notification` hook when it needs your approval. Add this
-to `~/.claude/settings.json` (applies to every project, and works in any
-terminal including Warp):
+Open **MelkLED ▸ Settings** (⌘,). Under **Approval alerts**, flip
+**"Flash the lights when Claude Code needs approval"** on — the app writes the
+Claude Code `Notification` hook into `~/.claude/settings.json` for you
+(preserving your other settings) and flipping it off removes it. The same
+window tunes the flash **appearance** (colour, blink count, which lights) and
+toggles the local **control endpoint**.
+
+After enabling, open `/hooks` in Claude Code once (or restart it) so it loads
+the new hook. The MelkLED app must be running for the flash to happen; the hook
+fails silently and never blocks Claude Code if it isn't.
+
+### Or wire it by hand
+
+The toggle just manages this entry (works in any terminal, every project):
 
 ```json
 {
@@ -84,9 +95,8 @@ terminal including Warp):
 }
 ```
 
-The MelkLED app must be running for the flash to happen; the `curl` fails
-silently (and never blocks Claude Code) if it isn't. Broaden the `matcher` to
-`"permission_prompt|idle_prompt"` to also flash when Claude finishes and is
+Broaden the `matcher` to `"permission_prompt|idle_prompt"` (the Settings
+window's second toggle does this) to also flash when Claude finishes and is
 waiting for your next prompt.
 
 **Warp's own agent and the Claude desktop app** don't expose an approval hook,

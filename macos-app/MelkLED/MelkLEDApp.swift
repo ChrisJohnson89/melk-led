@@ -36,5 +36,11 @@ struct MelkLEDApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {} // no "New Window"
         }
+
+        Settings {
+            SettingsView()
+                .environmentObject(controller)
+                .environmentObject(server)
+        }
     }
 }

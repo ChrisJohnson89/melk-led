@@ -247,6 +247,17 @@ final class MelkController: NSObject, ObservableObject {
     /// True while an attention flash is running (for the UI).
     @Published private(set) var isFlashing = false
 
+    /// Flash using the appearance configured in Settings (colour, blink count,
+    /// target). Used by the Settings "Test" button and by the bare `/flash`
+    /// endpoint the Claude Code hook calls with no parameters.
+    func flashAlert() {
+        let c = AlertSettings.color()
+        let target = AlertSettings.targetID()
+        let chosen = target.isEmpty ? devices : devices.filter { $0.id.uuidString == target }
+        flash(targets: chosen.isEmpty ? devices : chosen,
+              r: c.r, g: c.g, b: c.b, blinks: AlertSettings.blinks())
+    }
+
     /// Flash the given devices to get attention (e.g. an approval is waiting),
     /// then restore each device's prior state. A fresh call cancels any flash
     /// already in progress so alerts never pile up or leave lights stuck.

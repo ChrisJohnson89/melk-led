@@ -142,10 +142,17 @@ final class ControlServer: ObservableObject {
         case ("POST", "/flash"), ("GET", "/flash"):
             // Attention flash — e.g. an agent is waiting for the user to
             // approve something. GET is allowed so it is trivial to trigger.
-            let r = req.int("r") ?? MelkController.alertColor.r
-            let g = req.int("g") ?? MelkController.alertColor.g
-            let b = req.int("b") ?? MelkController.alertColor.b
-            let blinks = max(1, min(20, req.int("blinks") ?? 4))
+            // With no parameters (how the Claude Code hook calls it) we use the
+            // appearance configured in the app's Settings window.
+            let hasExplicit = ["r", "g", "b", "blinks", "target"].contains { req.body[$0] != nil }
+            if !hasExplicit {
+                controller.flashAlert()
+                return .json(["ok": true, "action": "flash", "target": "configured"])
+            }
+            let r = req.int("r") ?? AlertSettings.color().r
+            let g = req.int("g") ?? AlertSettings.color().g
+            let b = req.int("b") ?? AlertSettings.color().b
+            let blinks = max(1, min(20, req.int("blinks") ?? AlertSettings.blinks()))
             let target = req.string("target")
             let devices = controller.resolveTargets(target)
             guard !devices.isEmpty else {
