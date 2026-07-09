@@ -1,0 +1,28 @@
+# Copy to ~/.melk-led.toml and edit.
+# Find your controllers' MAC addresses with:  lights scan
+
+[devices]
+# alias = "MAC-ADDRESS"   (on macOS Bleak reports a CoreBluetooth UUID, that works too)
+office = "AA:BB:CC:DD:EE:FF"
+desk   = "11:22:33:44:55:66"
+
+[groups]
+all  = ["office", "desk"]
+main = ["office"]
+
+# Custom scenes override built-ins of the same name.
+# Steps run in order. Ops: on, off, color(r,g,b), brightness(percent),
+# white(warm_percent), effect(effect_id), effect_speed(percent).
+[scenes.movie]
+steps = [
+    { op = "on" },
+    { op = "color", r = 255, g = 80, b = 15 },
+    { op = "brightness", percent = 20 },
+]
+
+[scenes.gaming]
+steps = [
+    { op = "on" },
+    { op = "effect", effect_id = 32 },
+    { op = "effect_speed", percent = 85 },
+]

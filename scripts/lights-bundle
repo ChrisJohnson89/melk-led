@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Run melk-led BLE code through the framework Python.app via LaunchServices
+# so macOS honours the Bluetooth usage string in the bundle Info.plist
+# (a direct-path `python script.py` reads the Mach-O __info_plist section,
+# which Homebrew's build lacks, and TCC-crashes instead).
+#
+# Prereq (once): scripts/fix_macos_bluetooth.sh  (adds the key + re-signs)
+#
+# Usage:
+#   scripts/lights-bundle scripts/selftest.py
+#   scripts/lights-bundle scan
+#   scripts/lights-bundle --target office on
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+VENV_PY="$HERE/.venv/bin/python"
+VENV_SITE="$("$VENV_PY" -c 'import site; print([p for p in site.getsitepackages() if ".venv" in p][0])')"
+BASE_PREFIX="$("$VENV_PY" -c 'import sys; print(sys.base_prefix)')"
+APP="$BASE_PREFIX/Resources/Python.app"
+BOOT="$HERE/scripts/_bundle_bootstrap.py"
+LOG="${MELK_LOG:-$HOME/.melk-led-run.log}"
+
+if [[ ! -d "$APP" ]]; then
+    echo "error: Python.app not found at $APP" >&2
+    exit 1
+fi
+
+# The bundle launches with a different working directory, so turn any
+# argument that is an existing file into an absolute path.
+ARGS=()
+for a in "$@"; do
+    if [[ -f "$a" ]]; then
+        ARGS+=("$(cd "$(dirname "$a")" && pwd)/$(basename "$a")")
+    else
+        ARGS+=("$a")
+    fi
+done
+
+: > "$LOG"
+# -W waits for the app to exit so the log is complete before we print it.
+open -W --stdout "$LOG" --stderr "$LOG" "$APP" --args "$BOOT" "$VENV_SITE" "${ARGS[@]}" || true
+echo "----- output ($LOG) -----"
+cat "$LOG"

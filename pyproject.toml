@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "melk-led"
+version = "0.1.0"
+description = "Native local control of MELK-OA10 (ELK-BLEDOM/Triones) BLE LED controllers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Chris Johnson" }]
+dependencies = [
+    "bleak>=0.22",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+lights = "melk_led.cli:main"
+melk-led-api = "melk_led.api:main"
+
+[tool.setuptools.packages.find]
+include = ["melk_led*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
