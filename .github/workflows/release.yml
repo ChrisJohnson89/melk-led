@@ -1,0 +1,101 @@
+name: Release macOS app
+
+# Cut a release by bumping the version tag:
+#
+#   git tag v1.2.0 && git push origin v1.2.0
+#
+# That builds MelkLED.app at that version, zips it, and publishes a GitHub
+# release with the zip attached. `workflow_dispatch` lets you build a version
+# on demand from the Actions tab without tagging.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. 1.2.0 (no leading v)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macOS 15 ships Xcode 16+, required for the project's objectVersion 77
+    # (file-system synchronized groups).
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version and tag
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Building MelkLED ${VERSION} (tag ${TAG})"
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build (Release)
+        run: |
+          xcodebuild \
+            -project macos-app/MelkLED.xcodeproj \
+            -scheme MelkLED \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination 'generic/platform=macOS' \
+            MARKETING_VERSION="${{ steps.ver.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Package app
+        id: pkg
+        run: |
+          APP="build/Build/Products/Release/MelkLED.app"
+          ZIP="MelkLED-${{ steps.ver.outputs.version }}.zip"
+          test -d "$APP" || { echo "::error::built app not found at $APP"; exit 1; }
+          # ditto produces a macOS-correct archive that preserves the bundle.
+          ditto -c -k --keepParent "$APP" "$ZIP"
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          ls -lh "$ZIP"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          VERSION="${{ steps.ver.outputs.version }}"
+          ZIP="${{ steps.pkg.outputs.zip }}"
+          NOTES="MelkLED ${VERSION} — native macOS controller for MELK-OA10 BLE LED strips.
+
+          The \`MelkLED.app\` attached below is **unsigned** (no Apple Developer
+          certificate in CI). After downloading and unzipping, remove the
+          quarantine flag before first launch:
+
+          \`\`\`bash
+          xattr -dr com.apple.quarantine /Applications/MelkLED.app
+          \`\`\`
+
+          Then open it and click Allow on the one-time Bluetooth prompt."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --title "MelkLED ${VERSION}" \
+              --notes "$NOTES"
+          fi

@@ -68,6 +68,26 @@ open ~/Library/Developer/Xcode/DerivedData/MelkLED-*/Build/Products/Release/Melk
 On first launch, macOS shows a one-time Bluetooth permission prompt — click
 Allow. The app targets macOS 14+.
 
+## Releases
+
+Prebuilt `MelkLED.app` bundles are attached to
+[GitHub Releases](https://github.com/ChrisJohnson89/melk-led/releases). To cut
+a new one, bump the version by pushing a tag — the
+[`release`](../.github/workflows/release.yml) workflow builds the app at that
+version, zips it, and publishes the release automatically:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+CI has no Apple Developer certificate, so the published app is **unsigned**.
+After downloading, clear the quarantine flag before first launch:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MelkLED.app
+```
+
 ## Project layout
 
 ```
