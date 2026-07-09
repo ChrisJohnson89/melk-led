@@ -51,9 +51,48 @@ curl -sX POST localhost:8765/lights/scene -d '{"target":"all","name":"gaming"}'
 | POST | `/lights/white` | `{"target":"led1","warm":100}` |
 | POST | `/lights/scene` | `{"target":"all","name":"movie"}` |
 | POST | `/lights/effect` | `{"target":"all","effect":"Rainbow Cycle"}` |
+| POST/GET | `/flash` | `{"target":"all","blinks":4}` (optional `r`,`g`,`b`) |
 | POST | `/hermes` | `{"command":"office lights on"}` |
 
 `target` defaults to `all` when omitted.
+
+## Approval alerts (flash the lights when an agent needs you)
+
+`POST /flash` (GET also works) blinks the lights amber a few times, then
+restores their previous state. It is meant as an ambient "come look at the
+screen" signal — e.g. when Claude Code is waiting for you to approve a tool
+use. The toolbar's **Test Alert** button previews the same thing.
+
+### Wire it to Claude Code
+
+Claude Code fires a `Notification` hook when it needs your approval. Add this
+to `~/.claude/settings.json` (applies to every project, and works in any
+terminal including Warp):
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          { "type": "command", "command": "curl -s -m 2 -X POST localhost:8765/flash >/dev/null 2>&1 &" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The MelkLED app must be running for the flash to happen; the `curl` fails
+silently (and never blocks Claude Code) if it isn't. Broaden the `matcher` to
+`"permission_prompt|idle_prompt"` to also flash when Claude finishes and is
+waiting for your next prompt.
+
+**Warp's own agent and the Claude desktop app** don't expose an approval hook,
+so they can't trigger this directly — the only universal catch-all would be
+watching the macOS Notification Center database (needs Full Disk Access and is
+fragile), which this project deliberately does not do.
 
 ## Build & run
 

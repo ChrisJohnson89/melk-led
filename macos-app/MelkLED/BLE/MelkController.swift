@@ -238,6 +238,80 @@ final class MelkController: NSObject, ObservableObject {
     func setOnAll(_ on: Bool) { devices.forEach { setOn($0, on) } }
     func apply(_ scene: LightScene, toAll: Bool) { if toAll { devices.forEach { apply(scene, to: $0) } } }
 
+    // MARK: - Attention / alert
+
+    /// Default attention colour (amber).
+    static let alertColor = (r: 255, g: 140, b: 0)
+
+    private var flashGeneration = 0
+    /// True while an attention flash is running (for the UI).
+    @Published private(set) var isFlashing = false
+
+    /// Flash the given devices to get attention (e.g. an approval is waiting),
+    /// then restore each device's prior state. A fresh call cancels any flash
+    /// already in progress so alerts never pile up or leave lights stuck.
+    func flash(targets: [MelkDevice],
+               r: Int = alertColor.r, g: Int = alertColor.g, b: Int = alertColor.b,
+               blinks: Int = 4) {
+        let devices = targets.isEmpty ? self.devices : targets
+        guard !devices.isEmpty else { return }
+
+        flashGeneration += 1
+        let generation = flashGeneration
+        isFlashing = true
+
+        // Snapshot prior optimistic state so we can restore it afterwards.
+        let priors = devices.map { ($0, $0.isOn, $0.color, Int($0.brightness)) }
+
+        // Ensure connections; give cold devices time to finish the login
+        // handshake before the blink sequence so the blinks are clean.
+        var startDelay = 0.0
+        for d in devices where !d.isReady {
+            connect(d)
+            startDelay = 2.4
+        }
+
+        let interval = 0.3
+        let onFrames = [MelkProtocol.power(on: true),
+                        MelkProtocol.color(r: r, g: g, b: b),
+                        MelkProtocol.brightness(percent: 100)]
+        let offFrames = [MelkProtocol.power(on: false)]
+
+        var t = startDelay
+        schedule(at: t, generation) { devices.forEach { self.send(onFrames, to: $0) } }
+        for _ in 0..<blinks {
+            t += interval
+            schedule(at: t, generation) { devices.forEach { self.send(offFrames, to: $0) } }
+            t += interval
+            schedule(at: t, generation) { devices.forEach { self.send(onFrames, to: $0) } }
+        }
+
+        // Restore prior look and clear the flashing flag.
+        t += interval
+        schedule(at: t, generation) {
+            for (d, wasOn, color, bright) in priors {
+                if wasOn {
+                    let (rr, gg, bb) = Self.rgb(from: color)
+                    self.send([MelkProtocol.power(on: true),
+                               MelkProtocol.color(r: rr, g: gg, b: bb),
+                               MelkProtocol.brightness(percent: bright)], to: d)
+                    d.isOn = true; d.color = color; d.brightness = Double(bright)
+                } else {
+                    self.send(offFrames, to: d)
+                    d.isOn = false
+                }
+            }
+            self.isFlashing = false
+        }
+    }
+
+    private func schedule(at delay: TimeInterval, _ generation: Int, _ action: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.flashGeneration == generation else { return }
+            action()
+        }
+    }
+
     // MARK: - Alias editing
 
     func rename(_ device: MelkDevice, to newName: String) {

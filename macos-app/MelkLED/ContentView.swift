@@ -28,6 +28,15 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    flashSelection()
+                } label: {
+                    Label("Test Alert", systemImage: "bell.badge.fill")
+                }
+                .help("Flash the lights — preview the approval alert")
+                .disabled(controller.devices.isEmpty || controller.isFlashing)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     controller.isScanning ? controller.stopScan() : controller.startScan()
                 } label: {
                     Label(controller.isScanning ? "Scanning…" : "Scan",
@@ -35,6 +44,17 @@ struct ContentView: View {
                 }
                 .disabled(controller.bluetoothState != .poweredOn)
             }
+        }
+    }
+
+    private func flashSelection() {
+        switch selection {
+        case .device(let id):
+            if let device = controller.devices.first(where: { $0.id == id }) {
+                controller.flash(targets: [device])
+            }
+        default:
+            controller.flash(targets: controller.devices)
         }
     }
 

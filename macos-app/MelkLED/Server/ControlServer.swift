@@ -139,6 +139,20 @@ final class ControlServer: ObservableObject {
         case ("POST", "/hermes"):
             guard let command = req.string("command") else { return .error("missing 'command'", status: 400) }
             return runHermes(command)
+        case ("POST", "/flash"), ("GET", "/flash"):
+            // Attention flash — e.g. an agent is waiting for the user to
+            // approve something. GET is allowed so it is trivial to trigger.
+            let r = req.int("r") ?? MelkController.alertColor.r
+            let g = req.int("g") ?? MelkController.alertColor.g
+            let b = req.int("b") ?? MelkController.alertColor.b
+            let blinks = max(1, min(20, req.int("blinks") ?? 4))
+            let target = req.string("target")
+            let devices = controller.resolveTargets(target)
+            guard !devices.isEmpty else {
+                return .error("no devices matched target '\(target ?? "all")'", status: 404)
+            }
+            controller.flash(targets: devices, r: r, g: g, b: b, blinks: blinks)
+            return .json(["ok": true, "action": "flash", "target": target ?? "all", "blinks": blinks])
         default:
             return .error("not found", status: 404)
         }
