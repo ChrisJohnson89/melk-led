@@ -41,6 +41,8 @@ final class MelkController: NSObject, ObservableObject {
     private let maxConnectRetries = 3
 
     @Published private(set) var devices: [MelkDevice] = []
+    @Published private(set) var groups: [LightGroup] = []
+    @Published private(set) var customScenes: [LightScene] = []
     @Published private(set) var isScanning = false
     @Published private(set) var bluetoothState: CBManagerState = .unknown
     @Published private(set) var lastMessage: String = ""
@@ -49,11 +51,15 @@ final class MelkController: NSObject, ObservableObject {
     private var byPeripheral: [UUID: MelkDevice] = [:]
     private var connectRetries: [UUID: Int] = [:]
     private let store = DeviceStore()
+    private let groupStore = GroupStore()
+    private let sceneStore = SceneStore()
 
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: nil)
         seedKnownDevices()
+        groups = groupStore.load()
+        customScenes = sceneStore.load()
     }
 
     // MARK: - Seeding & persistence
@@ -231,96 +237,55 @@ final class MelkController: NSObject, ObservableObject {
         send(scene.frames, to: device)
     }
 
-    // Group fan-out.
+    // MARK: - Groups
 
-    var connectableDevices: [MelkDevice] { devices }
-
-    func setOnAll(_ on: Bool) { devices.forEach { setOn($0, on) } }
-    func apply(_ scene: LightScene, toAll: Bool) { if toAll { devices.forEach { apply(scene, to: $0) } } }
-
-    // MARK: - Attention / alert
-
-    /// Default attention colour (amber).
-    static let alertColor = (r: 255, g: 140, b: 0)
-
-    private var flashGeneration = 0
-    /// True while an attention flash is running (for the UI).
-    @Published private(set) var isFlashing = false
-
-    /// Flash using the appearance configured in Settings (colour, blink count,
-    /// target). Used by the Settings "Test" button and by the bare `/flash`
-    /// endpoint the Claude Code hook calls with no parameters.
-    func flashAlert() {
-        let c = AlertSettings.color()
-        let target = AlertSettings.targetID()
-        let chosen = target.isEmpty ? devices : devices.filter { $0.id.uuidString == target }
-        flash(targets: chosen.isEmpty ? devices : chosen,
-              r: c.r, g: c.g, b: c.b, blinks: AlertSettings.blinks())
+    /// Devices belonging to a group, in the group's member order.
+    func members(of group: LightGroup) -> [MelkDevice] {
+        group.memberIDs.compactMap { id in devices.first { $0.id == id } }
     }
 
-    /// Flash the given devices to get attention (e.g. an approval is waiting),
-    /// then restore each device's prior state. A fresh call cancels any flash
-    /// already in progress so alerts never pile up or leave lights stuck.
-    func flash(targets: [MelkDevice],
-               r: Int = alertColor.r, g: Int = alertColor.g, b: Int = alertColor.b,
-               blinks: Int = 4) {
-        let devices = targets.isEmpty ? self.devices : targets
-        guard !devices.isEmpty else { return }
-
-        flashGeneration += 1
-        let generation = flashGeneration
-        isFlashing = true
-
-        // Snapshot prior optimistic state so we can restore it afterwards.
-        let priors = devices.map { ($0, $0.isOn, $0.color, Int($0.brightness)) }
-
-        // Ensure connections; give cold devices time to finish the login
-        // handshake before the blink sequence so the blinks are clean.
-        var startDelay = 0.0
-        for d in devices where !d.isReady {
-            connect(d)
-            startDelay = 2.4
+    /// Create or update a group (matched by id), dropping unknown member IDs.
+    func saveGroup(_ group: LightGroup) {
+        var cleaned = group
+        cleaned.name = cleaned.name.trimmingCharacters(in: .whitespaces)
+        cleaned.memberIDs = cleaned.memberIDs.filter { id in devices.contains { $0.id == id } }
+        guard !cleaned.name.isEmpty else { return }
+        if let idx = groups.firstIndex(where: { $0.id == cleaned.id }) {
+            groups[idx] = cleaned
+        } else {
+            groups.append(cleaned)
         }
-
-        let interval = 0.3
-        let onFrames = [MelkProtocol.power(on: true),
-                        MelkProtocol.color(r: r, g: g, b: b),
-                        MelkProtocol.brightness(percent: 100)]
-        let offFrames = [MelkProtocol.power(on: false)]
-
-        var t = startDelay
-        schedule(at: t, generation) { devices.forEach { self.send(onFrames, to: $0) } }
-        for _ in 0..<blinks {
-            t += interval
-            schedule(at: t, generation) { devices.forEach { self.send(offFrames, to: $0) } }
-            t += interval
-            schedule(at: t, generation) { devices.forEach { self.send(onFrames, to: $0) } }
-        }
-
-        // Restore prior look and clear the flashing flag.
-        t += interval
-        schedule(at: t, generation) {
-            for (d, wasOn, color, bright) in priors {
-                if wasOn {
-                    let (rr, gg, bb) = Self.rgb(from: color)
-                    self.send([MelkProtocol.power(on: true),
-                               MelkProtocol.color(r: rr, g: gg, b: bb),
-                               MelkProtocol.brightness(percent: bright)], to: d)
-                    d.isOn = true; d.color = color; d.brightness = Double(bright)
-                } else {
-                    self.send(offFrames, to: d)
-                    d.isOn = false
-                }
-            }
-            self.isFlashing = false
-        }
+        groupStore.save(groups)
     }
 
-    private func schedule(at delay: TimeInterval, _ generation: Int, _ action: @escaping () -> Void) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.flashGeneration == generation else { return }
-            action()
+    func deleteGroup(_ group: LightGroup) {
+        groups.removeAll { $0.id == group.id }
+        groupStore.save(groups)
+    }
+
+    // MARK: - Scenes
+
+    /// Movie (built-in) followed by the user's own scenes.
+    var allScenes: [LightScene] { [Scenes.movie] + customScenes }
+
+    /// Create or update a user scene (matched by id). Built-ins are immutable.
+    func saveScene(_ scene: LightScene) {
+        var cleaned = scene
+        cleaned.name = cleaned.name.trimmingCharacters(in: .whitespaces)
+        cleaned.isBuiltin = false
+        guard !cleaned.name.isEmpty, !cleaned.steps.isEmpty else { return }
+        if let idx = customScenes.firstIndex(where: { $0.id == cleaned.id }) {
+            customScenes[idx] = cleaned
+        } else {
+            customScenes.append(cleaned)
         }
+        sceneStore.save(customScenes)
+    }
+
+    func deleteScene(_ scene: LightScene) {
+        guard !scene.isBuiltin else { return }
+        customScenes.removeAll { $0.id == scene.id }
+        sceneStore.save(customScenes)
     }
 
     // MARK: - Alias editing
@@ -330,19 +295,6 @@ final class MelkController: NSObject, ObservableObject {
         guard !trimmed.isEmpty else { return }
         device.name = trimmed
         persist()
-    }
-
-    func device(named target: String) -> MelkDevice? {
-        devices.first { $0.name.caseInsensitiveCompare(target) == .orderedSame }
-            ?? devices.first { $0.id.uuidString.caseInsensitiveCompare(target) == .orderedSame }
-    }
-
-    /// Resolve a Hermes/HTTP target string to a set of devices. "all" (or an
-    /// empty target) fans out to every known device.
-    func resolveTargets(_ target: String?) -> [MelkDevice] {
-        guard let target, !target.isEmpty, target.lowercased() != "all" else { return devices }
-        if let match = device(named: target) { return [match] }
-        return []
     }
 
     // MARK: - Colour helpers

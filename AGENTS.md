@@ -65,6 +65,29 @@ Encoded in `melk_led/protocol.py`; pinned by `tests/test_protocol.py`.
 
 ## Project map
 
+### macOS app (production target) — `macos-app/`
+
+SwiftUI + CoreBluetooth. No Python dependency. Standalone: it owns the BLE
+connections and has no network surface. (One device allows one BLE connection
+at a time, so close the app before driving the same strip from the CLI.)
+History note: an HTTP server (`127.0.0.1:8765`), Hermes NLU port, and a Claude
+Code "flash on approval" hook existed briefly and were removed on 2026-07-10.
+
+- `macos-app/MelkLED/Protocol/MelkProtocol.swift` — Swift port of the wire protocol (byte builders, effect enum, white constants). Mirrors `melk_led/protocol.py`.
+- `macos-app/MelkLED/BLE/MelkController.swift` — `@MainActor` observable: scan, connect, multi-device fan-out, group + scene management.
+- `macos-app/MelkLED/BLE/MelkDevice.swift` — per-device model (CoreBluetooth, login handshake, write).
+- `macos-app/MelkLED/Models/Scenes.swift` — user-editable scene model (`LightScene`/`SceneStep`, Codable). "movie" is the ONLY built-in.
+- `macos-app/MelkLED/Models/Groups.swift` — `LightGroup` model (name + member UUIDs).
+- `macos-app/MelkLED/Models/DeviceStore.swift` — JSON stores under `~/Library/Application Support/MelkLED/`: `devices.json` (aliases), `groups.json`, `scenes.json`.
+- `macos-app/MelkLED/Views/ControlSurface.swift` — main control panel (power, colour, brightness, white, scene grid, effects).
+- `macos-app/MelkLED/Views/SceneEditorView.swift` — custom scene editor sheet (ordered steps, live preview).
+- `macos-app/MelkLED/Views/GroupEditorView.swift` — group editor sheet (name + member checklist).
+- `macos-app/MelkLED/Views/DetailViews.swift` — device / group / all-lights detail adapters.
+- `macos-app/MelkLED/ContentView.swift` — root split view (All Lights, Groups, Controllers).
+- `macos-app/MelkLED/MelkLEDApp.swift` — app entry point.
+
+### Python package (CLI / reference / automation) — `melk_led/`
+
 - `melk_led/protocol.py` — pure wire protocol (byte builders, effect enum).
 - `melk_led/device.py` — `MelkDevice`: Bleak connect/login/retry/write, `scan()`.
 - `melk_led/manager.py` — `MelkManager`: multi-device pool, group fan-out.

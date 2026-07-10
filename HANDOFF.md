@@ -72,45 +72,41 @@ Full writeup is in `AGENTS.md` under "macOS Bluetooth (TCC)". Short version:
 A native `.app` with the key in its OWN Info.plist sidesteps all of the above,
 which is one more reason the desktop app is the right production target.
 
-## Desired next deliverable: a polished standalone Mac app
+## macOS app — BUILT (2026-07-09), simplified (2026-07-10)
 
-The user does NOT want a menu-bar utility. They want a proper application with
-its own window and a polished UI: device list, per-device and group controls,
-color picker, brightness slider, white-temperature control, scene / mode
-buttons (Movie, Pet, Gaming, Rainbow, etc.).
+The polished standalone macOS app is in `macos-app/` (Option A: SwiftUI +
+CoreBluetooth). It builds clean and launches. The architecture is:
 
-Recommended architecture (decide with the user first):
+- The app owns all BLE connections (CoreBluetooth, no Python/Bleak).
+- Standalone by design: the HTTP endpoint, Hermes NLU, and the Claude Code
+  "flash on approval" integration were REMOVED on 2026-07-10 at the user's
+  request (the hook was also removed from ~/.claude/settings.json).
+- Groups: user-defined, persisted to groups.json, full editor UI.
+- Scenes: user-editable; "movie" is the ONLY built-in. Scene editor sheet
+  with ordered steps, persisted to scenes.json.
+- Devices renameable; aliases persist to devices.json. All persistence is in
+  ~/Library/Application Support/MelkLED/.
 
-- OPTION A (recommended for "polished + native"): **SwiftUI + CoreBluetooth**.
-  The protocol is tiny and fully documented in `AGENTS.md`, so reimplementing
-  it in Swift is quick and yields a first-class native app with zero Python /
-  py2app / TCC friction (an Xcode app declares the Bluetooth key natively).
-  Keep the Python package as the reference implementation, CLI, and the
-  Hermes/REST surface. To avoid two processes fighting over BLE (one device
-  allows one connection), let the Swift app be the single BLE owner and expose
-  a small local HTTP endpoint (or URL scheme) that Hermes/CLI call.
+The Python package (`melk_led/`) remains as the CLI and reference
+implementation (its own REST/Hermes files still exist but are demoted).
 
-- OPTION B (stay all-Python): a windowed PyObjC AppKit app (NSWindow, not
-  NSStatusItem) reusing `melk_led`, packaged with py2app (0.28.10 is available;
-  confirm it builds on Python 3.14). `melk_led/async_runner.py` already bridges
-  AppKit's main run loop to a background asyncio loop for Bleak; reuse it.
-  More polish work in AppKit, and inherits the py2app/TCC packaging chores.
-
-- OPTION C: Python FastAPI backend (already built) + a web/Tauri/Electron
-  front end. Polished UI quickly, but BLE stays in the Python process and keeps
-  the TCC packaging burden.
-
-Recommendation: OPTION A for the app itself, keeping the Python package for
-CLI + Hermes. Confirm this direction before building.
-
-## Files already created for the app (reusable or removable)
-
-- `melk_led/async_runner.py`: background asyncio loop bridge. Useful only if
-  you go OPTION B. Safe to delete if going SwiftUI.
-- No window/UI code was written yet. Nothing to undo.
+`melk_led/async_runner.py` is an Option B leftover (asyncio bridge for PyObjC).
+Safe to delete; it is not used by the app or tests.
 
 ## Repo map
 
+### macOS app (production target)
+- `macos-app/MelkLED/Protocol/MelkProtocol.swift` - Swift wire protocol.
+- `macos-app/MelkLED/BLE/MelkController.swift` - CoreBluetooth controller,
+  plus group/scene management.
+- `macos-app/MelkLED/BLE/MelkDevice.swift` - per-device model.
+- `macos-app/MelkLED/Models/Scenes.swift` - editable scene model (movie only built-in).
+- `macos-app/MelkLED/Models/Groups.swift` - group model.
+- `macos-app/MelkLED/Models/DeviceStore.swift` - JSON stores (devices/groups/scenes).
+- `macos-app/MelkLED/Views/SceneEditorView.swift` - custom scene editor.
+- `macos-app/MelkLED/Views/GroupEditorView.swift` - group editor.
+
+### Python package (CLI / reference)
 - `melk_led/protocol.py` - wire protocol (pure, tested).
 - `melk_led/device.py` - MelkDevice: connect/login/retry/write, scan().
 - `melk_led/manager.py` - MelkManager: multi-device pool, group fan-out.
@@ -119,12 +115,10 @@ CLI + Hermes. Confirm this direction before building.
 - `melk_led/nlu.py` - Hermes natural-language parser.
 - `melk_led/cli.py` - `lights ...` CLI.
 - `melk_led/api.py` - FastAPI REST + /hermes.
-- `melk_led/async_runner.py` - asyncio-on-thread bridge (Option B only).
 - `scripts/lights-bundle` - macOS BLE launcher (open via Python.app).
 - `scripts/fix_macos_bluetooth.sh` - patch + deep re-sign Python.app.
-- `scripts/_bundle_bootstrap.py` - in-bundle sys.path splice + GUI activation.
 - `scripts/selftest.py` - visible hardware protocol test.
-- `AGENTS.md` - protocol + macOS TCC notes (read this first).
+- `AGENTS.md` - protocol, TCC notes, full project map (read this first).
 
 ## Command cheat sheet
 
@@ -141,11 +135,7 @@ pytest                                             # offline tests
 
 ## Immediate next steps for the new session
 
-1. Confirm with the user: SwiftUI native app (Option A) vs all-Python (Option B).
-2. If SwiftUI: scaffold an Xcode project, port the ~8 command builders from
-   `melk_led/protocol.py` (they are trivial byte arrays), implement scan +
-   connect + the mandatory login handshake (`7E 07 83`, then `7E 04 04`),
-   then build the UI (device list, color, brightness, white, scenes).
-3. Keep the Python CLI/REST/Hermes as the automation surface; decide how the
-   app and Hermes share BLE ownership (single-owner + local endpoint).
-4. Map led1-led4 to physical rooms and set real aliases.
+1. Connect to a real strip from the app UI and confirm colours/scenes land
+   visually (BLE writes are unverifiable without the physical lights).
+2. Map led1-led4 to physical room names and update `~/.melk-led.toml` aliases.
+3. Consider deleting `melk_led/async_runner.py` (Option B leftover, unused).

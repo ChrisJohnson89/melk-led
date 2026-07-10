@@ -7,15 +7,16 @@ Built for direct use, a REST API, and Hermes voice/agent control.
 The MELK-OA10 belongs to the **ELK-BLEDOM / Triones** controller family. Its
 BLE protocol is fully documented in [AGENTS.md](AGENTS.md).
 
-## Native macOS app
+## Native macOS app (the main way to use this)
 
-The polished, standalone desktop app lives in [`macos-app/`](macos-app/) — a
-SwiftUI + CoreBluetooth application that declares its own Bluetooth usage
-string, so it sidesteps all the Homebrew-Python / py2app / TCC friction the CLI
-needs on macOS. It is the **single BLE owner** and exposes a local HTTP
-endpoint on `127.0.0.1:8765` that this Python CLI and Hermes call. See
+The polished, standalone desktop app lives in [`macos-app/`](macos-app/): a
+SwiftUI + CoreBluetooth application with groups, custom scenes, and per-device
+controls. It declares its own Bluetooth usage string, so it sidesteps all the
+Homebrew-Python / py2app / TCC friction the CLI needs on macOS. See
 [macos-app/README.md](macos-app/README.md). The Python package below remains
-the reference protocol implementation, CLI, and automation surface.
+as the reference protocol implementation and CLI. Note that a strip accepts
+only one BLE connection at a time, so close the app before driving the same
+strip from the CLI (and vice versa).
 
 ## Install
 

@@ -28,6 +28,7 @@ struct ControlSurface: View {
     var onEffect: (Int) -> Void
     var onConnect: (() -> Void)?
     var onRename: ((String) -> Void)?
+    var onEdit: (() -> Void)?
 
     @State private var editingName = false
     @State private var draftName = ""
@@ -90,6 +91,13 @@ struct ControlSurface: View {
                     Label("Connect", systemImage: "link")
                 }
                 .buttonStyle(.bordered)
+            }
+            if let onEdit {
+                Button(action: onEdit) {
+                    Image(systemName: "square.and.pencil")
+                }
+                .buttonStyle(.bordered)
+                .help("Edit group members")
             }
             if let onRename {
                 Button {
@@ -273,32 +281,69 @@ struct ColorSwatch: Identifiable {
 // MARK: - Scene strip
 
 struct SceneStrip: View {
+    @EnvironmentObject private var controller: MelkController
     var onScene: (LightScene) -> Void
+
+    @State private var editingScene: LightScene?
+    @State private var editingIsNew = false
+
     private let columns = [GridItem(.adaptive(minimum: 108), spacing: 10)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(Scenes.all) { scene in
+            ForEach(controller.allScenes) { scene in
                 Button {
                     onScene(scene)
                 } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: scene.symbol)
-                            .font(.title3)
-                        Text(scene.label)
-                            .font(.callout.weight(.medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(scene.tint.opacity(0.18)))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(scene.tint.opacity(0.5)))
+                    tile(symbol: scene.symbol, label: scene.label, tint: scene.tint)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.primary)
+                .contextMenu {
+                    if scene.isBuiltin {
+                        Text("Built-in scene")
+                    } else {
+                        Button("Edit Scene…") {
+                            editingIsNew = false
+                            editingScene = scene
+                        }
+                        Button("Delete Scene", role: .destructive) {
+                            controller.deleteScene(scene)
+                        }
+                    }
+                }
+                .help(scene.isBuiltin ? "Built-in scene" : "Right-click to edit or delete")
             }
+
+            Button {
+                editingIsNew = true
+                editingScene = LightScene(name: "", steps: [SceneStep(op: .on)])
+            } label: {
+                tile(symbol: "plus", label: "New Scene", tint: .secondary)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Create a custom scene")
         }
+        .sheet(item: $editingScene) { scene in
+            SceneEditorView(draft: scene, isNew: editingIsNew)
+        }
+    }
+
+    private func tile(symbol: String, label: String, tint: Color) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.title3)
+            Text(label)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(tint.opacity(0.18)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(tint.opacity(0.5)))
     }
 }
 

@@ -2,21 +2,23 @@
 //  ContentView.swift
 //  MelkLED
 //
-//  Top-level layout: a sidebar of controllers (plus an "All Lights" group)
-//  and a detail pane with the full control surface for the selection.
+//  Top-level layout: a sidebar of groups and controllers, and a detail pane
+//  with the full control surface for the selection.
 //
 
 import SwiftUI
 
 enum Selection: Hashable {
     case all
+    case group(UUID)
     case device(UUID)
 }
 
 struct ContentView: View {
     @EnvironmentObject private var controller: MelkController
-    @EnvironmentObject private var server: ControlServer
     @State private var selection: Selection? = .all
+    @State private var editingGroup: LightGroup?
+    @State private var editingGroupIsNew = false
 
     var body: some View {
         NavigationSplitView {
@@ -28,15 +30,6 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    flashSelection()
-                } label: {
-                    Label("Test Alert", systemImage: "bell.badge.fill")
-                }
-                .help("Flash the lights — preview the approval alert")
-                .disabled(controller.devices.isEmpty || controller.isFlashing)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
                     controller.isScanning ? controller.stopScan() : controller.startScan()
                 } label: {
                     Label(controller.isScanning ? "Scanning…" : "Scan",
@@ -45,16 +38,8 @@ struct ContentView: View {
                 .disabled(controller.bluetoothState != .poweredOn)
             }
         }
-    }
-
-    private func flashSelection() {
-        switch selection {
-        case .device(let id):
-            if let device = controller.devices.first(where: { $0.id == id }) {
-                controller.flash(targets: [device])
-            }
-        default:
-            controller.flash(targets: controller.devices)
+        .sheet(item: $editingGroup) { group in
+            GroupEditorView(draft: group, isNew: editingGroupIsNew)
         }
     }
 
@@ -66,6 +51,32 @@ struct ContentView: View {
                 AllLightsRow()
                     .tag(Selection.all)
             }
+
+            Section("Groups") {
+                ForEach(controller.groups) { group in
+                    GroupRow(group: group)
+                        .tag(Selection.group(group.id))
+                        .contextMenu {
+                            Button("Edit Group…") {
+                                editingGroupIsNew = false
+                                editingGroup = group
+                            }
+                            Button("Delete Group", role: .destructive) {
+                                if selection == .group(group.id) { selection = .all }
+                                controller.deleteGroup(group)
+                            }
+                        }
+                }
+                Button {
+                    editingGroupIsNew = true
+                    editingGroup = LightGroup(name: "")
+                } label: {
+                    Label("New Group…", systemImage: "plus.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
             Section("Controllers") {
                 ForEach(controller.devices) { device in
                     DeviceRow(device: device)
@@ -80,18 +91,12 @@ struct ContentView: View {
     private var statusFooter: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(server.isRunning ? Color.green : Color.secondary)
+                .fill(controller.bluetoothState == .poweredOn ? Color.green : Color.secondary)
                 .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(server.isRunning ? "Hermes endpoint on :\(server.port)" : "Endpoint off")
-                    .font(.caption2)
-                if !controller.lastMessage.isEmpty {
-                    Text(controller.lastMessage)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
+            Text(controller.lastMessage.isEmpty ? "Ready" : controller.lastMessage)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer()
         }
         .padding(.horizontal, 12)
@@ -105,7 +110,27 @@ struct ContentView: View {
     private var detail: some View {
         switch selection {
         case .all, .none:
-            AllDetailView()
+            MultiDeviceDetailView(
+                title: "All Lights",
+                subtitle: "\(controller.devices.count) controllers",
+                devices: controller.devices,
+                onEdit: nil
+            )
+        case .group(let id):
+            if let group = controller.groups.first(where: { $0.id == id }) {
+                MultiDeviceDetailView(
+                    title: group.name,
+                    subtitle: "\(group.memberIDs.count) controllers",
+                    devices: controller.members(of: group),
+                    onEdit: {
+                        editingGroupIsNew = false
+                        editingGroup = group
+                    }
+                )
+                .id(group.id)
+            } else {
+                ContentUnavailableView("Select a group", systemImage: "lightbulb.2")
+            }
         case .device(let id):
             if let device = controller.devices.first(where: { $0.id == id }) {
                 DeviceDetailView(device: device)
@@ -131,6 +156,24 @@ struct AllLightsRow: View {
         } icon: {
             Image(systemName: "lightbulb.2.fill")
                 .foregroundStyle(.tint)
+        }
+    }
+}
+
+struct GroupRow: View {
+    @EnvironmentObject private var controller: MelkController
+    let group: LightGroup
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(group.name).font(.body)
+                Text(controller.members(of: group).map(\.name).joined(separator: ", "))
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: "rectangle.3.group.fill")
         }
     }
 }

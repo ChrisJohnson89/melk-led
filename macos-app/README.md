@@ -2,107 +2,39 @@
 
 A polished, standalone SwiftUI + CoreBluetooth app for controlling
 **MELK-OA10** BLE LED strips locally. This is the production front end for the
-project; the Python package (`../melk_led`) remains the reference protocol
-implementation, CLI, and automation surface.
+project; the Python package (`../melk_led`) remains as a reference protocol
+implementation and CLI.
 
-## Why native (Option A)
+## Why native
 
 The MELK wire protocol is tiny and fully documented in
 [../AGENTS.md](../AGENTS.md), so reimplementing it in Swift is quick and buys a
 first-class native app with **zero py2app / TCC friction**: the app declares
 `NSBluetoothAlwaysUsageDescription` in its own `Info.plist`, so it owns its
-Bluetooth permission identity independent of any launching terminal. No
-`fix_macos_bluetooth.sh`, no `--deep` re-sign dance.
+Bluetooth permission identity independent of any launching terminal.
 
 ## Features
 
-- Sidebar of controllers plus an **All Lights** group.
+- Sidebar of controllers, an **All Lights** row, and your own **Groups**.
 - Power, full colour picker + preset swatches, brightness, and white-temperature.
-- One-tap **scenes** (office, movie, pet, gaming, rainbow, white, warm, cool)
-  and built-in **effects** (rainbow cycle, color wave, breathing, strobe, …).
-- Scan for new controllers; the four already-discovered units are seeded so the
-  app is useful on first launch. Rename any controller (persists to
-  `~/Library/Application Support/MelkLED/devices.json`).
+- **Custom scenes**: build your own one-tap scenes in the scene editor
+  (ordered steps: power, colour, brightness, white, effect, effect speed).
+  **Movie** is the only built-in. Right-click a scene to edit or delete it;
+  the editor has a live "Preview on all lights" button.
+- **Groups**: create rooms like "Living Room" from any set of controllers,
+  edit membership any time (sidebar right-click, or the pencil on the group
+  page), and control the whole group at once.
+- **Reassign / rename controllers**: rename any controller from its page
+  (pencil button); names persist across launches.
+- Scan for new controllers; the four already-discovered units are seeded so
+  the app is useful on first launch.
 - The mandatory MELK login handshake (`7E 07 83`, then `7E 04 04`) plus
   connect/retry is handled automatically; frames queued while a strip is
   connecting are flushed once login completes.
 
-## Single BLE owner + Hermes endpoint
-
-A BLE device accepts only one connection, so the app is the **single BLE
-owner** and exposes a small local HTTP endpoint on `127.0.0.1:8765` (loopback
-only) that Hermes and the Python CLI can call. Routes mirror the FastAPI
-service and the deterministic Hermes NLU is ported from `melk_led/nlu.py`:
-
-```bash
-curl -s localhost:8765/health
-curl -sX POST localhost:8765/hermes -d '{"command":"movie mode"}'
-curl -sX POST localhost:8765/hermes -d '{"command":"led2 lights on"}'
-curl -sX POST localhost:8765/lights/color -d '{"target":"led1","r":255,"g":0,"b":0}'
-curl -sX POST localhost:8765/lights/scene -d '{"target":"all","name":"gaming"}'
-```
-
-| Method | Path | Body |
-|---|---|---|
-| GET | `/health`, `/devices`, `/scenes` | — |
-| POST | `/lights/on` · `/off` | `{"target":"led1"}` |
-| POST | `/lights/color` | `{"target":"led1","r":255,"g":0,"b":0}` |
-| POST | `/lights/brightness` | `{"target":"all","percent":40}` |
-| POST | `/lights/white` | `{"target":"led1","warm":100}` |
-| POST | `/lights/scene` | `{"target":"all","name":"movie"}` |
-| POST | `/lights/effect` | `{"target":"all","effect":"Rainbow Cycle"}` |
-| POST/GET | `/flash` | `{"target":"all","blinks":4}` (optional `r`,`g`,`b`) |
-| POST | `/hermes` | `{"command":"office lights on"}` |
-
-`target` defaults to `all` when omitted.
-
-## Approval alerts (flash the lights when an agent needs you)
-
-`POST /flash` (GET also works) blinks the lights amber a few times, then
-restores their previous state. It is meant as an ambient "come look at the
-screen" signal — e.g. when Claude Code is waiting for you to approve a tool
-use. The toolbar's **Test Alert** button previews the same thing.
-
-### Turn it on from Settings (recommended)
-
-Open **MelkLED ▸ Settings** (⌘,). Under **Approval alerts**, flip
-**"Flash the lights when Claude Code needs approval"** on — the app writes the
-Claude Code `Notification` hook into `~/.claude/settings.json` for you
-(preserving your other settings) and flipping it off removes it. The same
-window tunes the flash **appearance** (colour, blink count, which lights) and
-toggles the local **control endpoint**.
-
-After enabling, open `/hooks` in Claude Code once (or restart it) so it loads
-the new hook. The MelkLED app must be running for the flash to happen; the hook
-fails silently and never blocks Claude Code if it isn't.
-
-### Or wire it by hand
-
-The toggle just manages this entry (works in any terminal, every project):
-
-```json
-{
-  "hooks": {
-    "Notification": [
-      {
-        "matcher": "permission_prompt",
-        "hooks": [
-          { "type": "command", "command": "curl -s -m 2 -X POST localhost:8765/flash >/dev/null 2>&1 &" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Broaden the `matcher` to `"permission_prompt|idle_prompt"` (the Settings
-window's second toggle does this) to also flash when Claude finishes and is
-waiting for your next prompt.
-
-**Warp's own agent and the Claude desktop app** don't expose an approval hook,
-so they can't trigger this directly — the only universal catch-all would be
-watching the macOS Notification Center database (needs Full Disk Access and is
-fragile), which this project deliberately does not do.
+Everything persists as small JSON files in
+`~/Library/Application Support/MelkLED/` (`devices.json`, `groups.json`,
+`scenes.json`).
 
 ## Build & run
 
@@ -114,14 +46,14 @@ xcodebuild -project MelkLED.xcodeproj -scheme MelkLED -configuration Release bui
 open ~/Library/Developer/Xcode/DerivedData/MelkLED-*/Build/Products/Release/MelkLED.app
 ```
 
-On first launch, macOS shows a one-time Bluetooth permission prompt — click
+On first launch, macOS shows a one-time Bluetooth permission prompt. Click
 Allow. The app targets macOS 14+.
 
 ## Releases
 
 Prebuilt `MelkLED.app` bundles are attached to
 [GitHub Releases](https://github.com/ChrisJohnson89/melk-led/releases). To cut
-a new one, bump the version by pushing a tag — the
+a new one, bump the version by pushing a tag; the
 [`release`](../.github/workflows/release.yml) workflow builds the app at that
 version, zips it, and publishes the release automatically:
 
@@ -141,15 +73,20 @@ xattr -dr com.apple.quarantine /Applications/MelkLED.app
 
 ```
 MelkLED/
-  MelkLEDApp.swift          app entry; wires controller + HTTP server
-  ContentView.swift         split view: sidebar + detail
+  MelkLEDApp.swift              app entry
+  ContentView.swift             split view: sidebar (groups + controllers) + detail
   Protocol/MelkProtocol.swift   pure wire protocol (port of protocol.py)
-  Models/Scenes.swift           scene definitions (port of scenes.py)
-  Models/DeviceStore.swift      alias persistence
+  Models/Scenes.swift           editable scene model (Movie is the only built-in)
+  Models/Groups.swift           group model
+  Models/DeviceStore.swift      JSON persistence (devices/groups/scenes)
   BLE/MelkDevice.swift          observable per-device model
   BLE/MelkController.swift      single CBCentralManager BLE owner
-  Views/ControlSurface.swift    reusable control panel
-  Views/DetailViews.swift       device + all-lights adapters
-  Server/ControlServer.swift    local HTTP endpoint + Hermes NLU
-  Server/HTTP.swift             minimal HTTP request/response
+  Views/ControlSurface.swift    reusable control panel + scene grid
+  Views/SceneEditorView.swift   custom scene editor sheet
+  Views/GroupEditorView.swift   group editor sheet
+  Views/DetailViews.swift       device / group / all-lights adapters
 ```
+
+Note: the app no longer runs a local HTTP endpoint. Earlier versions exposed
+`127.0.0.1:8765` for Hermes and a Claude Code "flash on approval" hook; both
+were removed in favour of keeping the app a simple standalone controller.
